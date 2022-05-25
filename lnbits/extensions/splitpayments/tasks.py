@@ -27,7 +27,7 @@ async def on_invoice_paid(payment: Payment) -> None:
     # now we make some special internal transfers (from no one to the receiver)
     targets = await get_targets(payment.wallet_id)
     transfers = [
-        (target.wallet, int(target.percent * payment.amount / 100))
+        (target.wallet, int(target.percent * payment.amount))
         for target in targets
     ]
     transfers = [(wallet, amount) for wallet, amount in transfers if amount > 0]

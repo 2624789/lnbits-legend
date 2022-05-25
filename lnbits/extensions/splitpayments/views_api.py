@@ -56,7 +56,7 @@ async def api_targets_set(
         )
 
     percent_sum = sum([target.percent for target in targets])
-    if percent_sum > 100:
+    if percent_sum > 1:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST, detail="Splitting over 100%."
         )
