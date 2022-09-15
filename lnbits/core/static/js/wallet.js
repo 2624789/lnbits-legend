@@ -232,6 +232,9 @@ new Vue({
         generateChart(this.$refs.canvas, this.payments)
       })
     },
+    focusInput(el) {
+      this.$nextTick(() => this.$refs[el].focus())
+    },
     showReceiveDialog: function () {
       this.receive.show = true
       this.receive.status = 'pending'
@@ -243,6 +246,7 @@ new Vue({
       this.receive.paymentChecker = null
       this.receive.minMax = [0, 2100000000000000]
       this.receive.lnurl = null
+      this.focusInput('setAmount')
     },
     showParseDialog: function () {
       this.parse.show = true
@@ -365,9 +369,9 @@ new Vue({
     decodeRequest: function () {
       this.parse.show = true
       let req = this.parse.data.request.toLowerCase()
-      if (this.parse.data.request.startsWith('lightning:')) {
+      if (this.parse.data.request.toLowerCase().startsWith('lightning:')) {
         this.parse.data.request = this.parse.data.request.slice(10)
-      } else if (this.parse.data.request.startsWith('lnurl:')) {
+      } else if (this.parse.data.request.toLowerCase().startsWith('lnurl:')) {
         this.parse.data.request = this.parse.data.request.slice(6)
       } else if (req.indexOf('lightning=lnurl1') !== -1) {
         this.parse.data.request = this.parse.data.request
@@ -618,10 +622,10 @@ new Vue({
     },
     updateWalletName: function () {
       let newName = this.newName
+      let adminkey = this.g.wallet.adminkey
       if (!newName || !newName.length) return
-      // let data = {name: newName}
       LNbits.api
-        .request('PUT', '/api/v1/wallet/' + newName, this.g.wallet.adminkey, {})
+        .request('PUT', '/api/v1/wallet/' + newName, adminkey, {})
         .then(res => {
           this.newName = ''
           this.$q.notify({
@@ -668,7 +672,17 @@ new Vue({
       })
     },
     exportCSV: function () {
-      LNbits.utils.exportCSV(this.paymentsTable.columns, this.payments)
+      // status is important for export but it is not in paymentsTable
+      // because it is manually added with payment detail link and icons
+      // and would cause duplication in the list
+      let columns = this.paymentsTable.columns
+      columns.unshift({
+        name: 'pending',
+        align: 'left',
+        label: 'Pending',
+        field: 'pending'
+      })
+      LNbits.utils.exportCSV(columns, this.payments)
     }
   },
   watch: {
@@ -691,10 +705,7 @@ new Vue({
   },
   mounted: function () {
     // show disclaimer
-    if (
-      this.$refs.disclaimer &&
-      !this.$q.localStorage.getItem('lnbits.disclaimerShown')
-    ) {
+    if (!this.$q.localStorage.getItem('lnbits.disclaimerShown')) {
       this.disclaimerDialog.show = true
       this.$q.localStorage.set('lnbits.disclaimerShown', true)
     }
@@ -705,3 +716,11 @@ new Vue({
     )
   }
 })
+
+if (navigator.serviceWorker != null) {
+  navigator.serviceWorker
+    .register('/service-worker.js')
+    .then(function (registration) {
+      console.log('Registered events at scope: ', registration.scope)
+    })
+}
