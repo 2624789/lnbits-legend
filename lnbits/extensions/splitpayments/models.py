@@ -14,8 +14,8 @@ class Target(BaseModel):
 class TargetPutList(BaseModel):
     wallet: str = Query(...)
     alias: str = Query("")
-    percent: float = Query(..., gt=0.0, le=1.0)
-
+    percent: float = Query(..., ge=0.01, lt=100)
+    
 
 class TargetPut(BaseModel):
     __root__: List[TargetPutList]

@@ -2,11 +2,11 @@ import asyncio
 import json
 from binascii import unhexlify
 from io import BytesIO
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 import httpx
-from fastapi import Depends
+from fastapi import Depends, WebSocket, WebSocketDisconnect
 from lnurl import LnurlErrorResponse
 from lnurl import decode as decode_lnurl  # type: ignore
 from loguru import logger
@@ -28,7 +28,7 @@ from . import db
 from .crud import (
     check_internal,
     create_payment,
-    delete_payment,
+    delete_wallet_payment,
     get_wallet,
     get_wallet_payment,
     update_payment_details,
@@ -186,9 +186,9 @@ async def pay_invoice(
             )
 
         # notify receiver asynchronously
-
         from lnbits.tasks import internal_invoice_queue
 
+        logger.debug(f"enqueuing internal invoice {internal_checking_id}")
         await internal_invoice_queue.put(internal_checking_id)
     else:
         logger.debug(f"backend: sending payment {temp_id}")
@@ -221,10 +221,10 @@ async def pay_invoice(
             logger.warning(f"backend sent payment failure")
             async with db.connect() as conn:
                 logger.debug(f"deleting temporary payment {temp_id}")
-                await delete_payment(temp_id, conn=conn)
+                await delete_wallet_payment(temp_id, wallet_id, conn=conn)
             raise PaymentFailure(
-                f"payment failed: {payment.error_message}"
-                or "payment failed, but backend didn't give us an error message"
+                f"Payment failed: {payment.error_message}"
+                or "Payment failed, but backend didn't give us an error message."
             )
         else:
             logger.warning(
@@ -382,3 +382,28 @@ async def check_transaction_status(
 # WARN: this same value must be used for balance check and passed to WALLET.pay_invoice(), it may cause a vulnerability if the values differ
 def fee_reserve(amount_msat: int) -> int:
     return max(int(RESERVE_FEE_MIN), int(amount_msat * RESERVE_FEE_PERCENT / 100.0))
+
+
+class WebsocketConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        logger.debug(websocket)
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def send_data(self, message: str, item_id: str):
+        for connection in self.active_connections:
+            if connection.path_params["item_id"] == item_id:
+                await connection.send_text(message)
+
+
+websocketManager = WebsocketConnectionManager()
+
+
+async def websocketUpdater(item_id, data):
+    return await websocketManager.send_data(f"{data}", item_id)

@@ -27,7 +27,7 @@
       :addresses="addresses"
       :serial-signer-ref="$refs.serialSigner"
       @accounts-update="updateAccounts"
-      @new-receive-address="showAddressDetails"
+      @new-receive-address="showAddressDetailsWithConfirmation"
     >
     </wallet-list>
 
@@ -52,14 +52,38 @@
           ></q-spinner>
         </div>
         <div class="col-md-3 col-sm-5 q-pr-md">
-          <q-btn
+          <q-btn-dropdown
             v-if="!showPayment"
+            split
             unelevated
+            label="New Payment"
             color="secondary"
             class="btn-full"
             @click="goToPaymentView"
-            >New Payment</q-btn
           >
+            <q-list>
+              <q-item @click="goToPaymentView" clickable v-close-popup>
+                <q-item-section>
+                  <q-item-label>New Payment</q-item-label>
+                  <q-item-label caption
+                    >Create a new payment by selecting Inputs and
+                    Outputs</q-item-label
+                  >
+                </q-item-section>
+              </q-item>
+              <q-item
+                @click="showEnterSignedPsbtDialog"
+                clickable
+                v-close-popup
+              >
+                <q-item-section>
+                  <q-item-label>From Signed PSBT</q-item-label>
+                  <q-item-label caption> Paste a signed PSBT</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-btn-dropdown>
+
           <q-btn
             v-if="showPayment"
             outline
@@ -136,6 +160,7 @@
         :adminkey="g.user.wallets[0].adminkey"
         :serial-signer-ref="$refs.serialSigner"
         :sats-denominated="config.sats_denominated"
+        :network="config.network"
         @broadcast-done="handleBroadcastSuccess"
       ></payment>
       <!-- todo: no more utxos.data -->
@@ -149,6 +174,7 @@
       <q-card-section>
         <h6 class="text-subtitle1 q-my-none">
           {{SITE_TITLE}} Onchain Wallet (watch-only) Extension
+          <small>(v0.3)</small>
         </h6>
       </q-card-section>
       <q-card-section class="q-pa-none">
@@ -224,6 +250,36 @@
     </q-card>
   </q-dialog>
 
+  <q-dialog v-model="showEnterSignedPsbt" position="top">
+    <q-card class="q-pa-lg lnbits__dialog-card">
+      <h5 class="text-subtitle1 q-my-none">Enter the Signed PSBT</h5>
+      <q-separator></q-separator><br />
+
+      <p>
+        <q-input
+          filled
+          dense
+          v-model.trim="signedBase64Psbt"
+          type="textarea"
+          label="Signed PSBT"
+        ></q-input>
+      </p>
+
+      <div class="row q-mt-lg q-gutter-sm">
+        <q-btn
+          outline
+          v-close-popup
+          color="grey"
+          @click="checkPsbt"
+          class="q-ml-sm"
+          >Check PSBT</q-btn
+        >
+        <q-btn v-close-popup flat color="grey" class="q-ml-auto">Close</q-btn>
+      </div>
+      <div class="row q-mt-lg q-gutter-sm"></div>
+    </q-card>
+  </q-dialog>
+
   {% endraw %}
 </div>
 
@@ -238,6 +294,8 @@
 <script src="{{ url_for('watchonly_static', path='js/tables.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='js/map.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='js/utils.js') }}"></script>
+<script src="{{ url_for('watchonly_static', path='js/bip39-word-list.js') }}"></script>
+
 <script src="{{ url_for('watchonly_static', path='components/my-checkbox/my-checkbox.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/wallet-config/wallet-config.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/wallet-list/wallet-list.js') }}"></script>
@@ -245,10 +303,12 @@
 <script src="{{ url_for('watchonly_static', path='components/history/history.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/utxo-list/utxo-list.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/fee-rate/fee-rate.js') }}"></script>
+<script src="{{ url_for('watchonly_static', path='components/seed-input/seed-input.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/send-to/send-to.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/payment/payment.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/serial-signer/serial-signer.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='components/serial-port-config/serial-port-config.js') }}"></script>
+
 <script src="{{ url_for('watchonly_static', path='js/crypto/noble-secp256k1.js') }}"></script>
 <script src="{{ url_for('watchonly_static', path='js/crypto/aes.js') }}"></script>
 
