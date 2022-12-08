@@ -11,7 +11,8 @@ async function payment(path) {
       'mempool-endpoint',
       'sats-denominated',
       'serial-signer-ref',
-      'adminkey'
+      'adminkey',
+      'network'
     ],
     watch: {
       immediate: true,
@@ -100,6 +101,18 @@ async function payment(path) {
             this.$q.notify({
               type: 'warning',
               message: 'Please connect to a Signing device first!',
+              timeout: 10000
+            })
+            return
+          }
+          const p2trUtxo = this.utxos.find(
+            u => u.selected && u.accountType === 'p2tr'
+          )
+          if (p2trUtxo) {
+            this.$q.notify({
+              type: 'warning',
+              message: 'Taproot Signing not supported yet!',
+              caption: 'Please manually deselect the Taproot UTXOs',
               timeout: 10000
             })
             return
@@ -259,15 +272,36 @@ async function payment(path) {
           this.showChecking = false
         }
       },
+
+      fetchUtxoHexForPsbt: async function (psbtBase64) {
+        if (this.tx?.inputs && this.tx?.inputs.length) return this.tx.inputs
+
+        const {data: psbtUtxos} = await LNbits.api.request(
+          'PUT',
+          '/watchonly/api/v1/psbt/utxos',
+          this.adminkey,
+          {psbtBase64}
+        )
+
+        const inputs = []
+        for (const utxo of psbtUtxos) {
+          const txHex = await this.fetchTxHex(utxo.tx_id)
+          inputs.push({tx_hex: txHex})
+        }
+        return inputs
+      },
       extractTxFromPsbt: async function (psbtBase64) {
         try {
+          const inputs = await this.fetchUtxoHexForPsbt(psbtBase64)
+
           const {data} = await LNbits.api.request(
             'PUT',
             '/watchonly/api/v1/psbt/extract',
             this.adminkey,
             {
               psbtBase64,
-              inputs: this.tx.inputs
+              inputs,
+              network: this.network
             }
           )
           return data

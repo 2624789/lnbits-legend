@@ -4,6 +4,7 @@ from http import HTTPStatus
 import httpx
 from embit import finalizer, script
 from embit.ec import PublicKey
+from embit.networks import NETWORKS
 from embit.psbt import PSBT, DerivationPath
 from embit.transaction import Transaction, TransactionInput, TransactionOutput
 from fastapi import Query, Request
@@ -30,11 +31,11 @@ from .crud import (
 )
 from .helpers import parse_key
 from .models import (
-    BroadcastTransaction,
     Config,
     CreatePsbt,
     CreateWallet,
     ExtractPsbt,
+    SerializedTransaction,
     SignedTransaction,
     WalletAccount,
 )
@@ -85,7 +86,6 @@ async def api_wallet_create_or_update(
 
         new_wallet = WalletAccount(
             id="none",
-            user=w.wallet.user,
             masterpub=data.masterpub,
             fingerprint=descriptor.keys[0].fingerprint.hex(),
             type=descriptor.scriptpubkey_type(),
@@ -93,6 +93,7 @@ async def api_wallet_create_or_update(
             address_no=-1,  # so fresh address on empty wallet can get address with index 0
             balance=0,
             network=network["name"],
+            meta=data.meta,
         )
 
         wallets = await get_watch_wallets(w.wallet.user, network["name"])
@@ -113,7 +114,7 @@ async def api_wallet_create_or_update(
                 )
             )
 
-        wallet = await create_watch_wallet(new_wallet)
+        wallet = await create_watch_wallet(w.wallet.user, new_wallet)
 
         await api_get_addresses(wallet.id, w)
     except Exception as e:
@@ -137,7 +138,7 @@ async def api_wallet_delete(wallet_id, w: WalletTypeInfo = Depends(require_admin
     await delete_watch_wallet(wallet_id)
     await delete_addresses_for_wallet(wallet_id)
 
-    raise HTTPException(status_code=HTTPStatus.NO_CONTENT)
+    return "", HTTPStatus.NO_CONTENT
 
 
 #############################ADDRESSES##########################
@@ -268,7 +269,6 @@ async def api_psbt_create(
         for i, inp in enumerate(inputs_extra):
             psbt.inputs[i].bip32_derivations = inp["bip32_derivations"]
             psbt.inputs[i].non_witness_utxo = inp.get("non_witness_utxo", None)
-            print("### ", inp.get("non_witness_utxo", None))
 
         outputs_extra = []
         bip32_derivations = {}
@@ -291,10 +291,29 @@ async def api_psbt_create(
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(e))
 
 
+@watchonly_ext.put("/api/v1/psbt/utxos")
+async def api_psbt_extract_tx(
+    req: Request, w: WalletTypeInfo = Depends(require_admin_key)
+):
+    """Extract previous unspent transaction outputs (tx_id, vout) from PSBT"""
+
+    body = await req.json()
+    try:
+        psbt = PSBT.from_base64(body["psbtBase64"])
+        res = []
+        for _, inp in enumerate(psbt.inputs):
+            res.append({"tx_id": inp.txid.hex(), "vout": inp.vout})
+
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(e))
+
+
 @watchonly_ext.put("/api/v1/psbt/extract")
 async def api_psbt_extract_tx(
     data: ExtractPsbt, w: WalletTypeInfo = Depends(require_admin_key)
 ):
+    network = NETWORKS["main"] if data.network == "Mainnet" else NETWORKS["test"]
     res = SignedTransaction()
     try:
         psbt = PSBT.from_base64(data.psbtBase64)
@@ -316,7 +335,7 @@ async def api_psbt_extract_tx(
 
         for out in transaction.vout:
             tx["outputs"].append(
-                {"amount": out.value, "address": out.script_pubkey.address()}
+                {"amount": out.value, "address": out.script_pubkey.address(network)}
             )
         res.tx_json = json.dumps(tx)
     except Exception as e:
@@ -326,7 +345,7 @@ async def api_psbt_extract_tx(
 
 @watchonly_ext.post("/api/v1/tx")
 async def api_tx_broadcast(
-    data: BroadcastTransaction, w: WalletTypeInfo = Depends(require_admin_key)
+    data: SerializedTransaction, w: WalletTypeInfo = Depends(require_admin_key)
 ):
     try:
         config = await get_config(w.wallet.user)
@@ -343,11 +362,8 @@ async def api_tx_broadcast(
         async with httpx.AsyncClient() as client:
             r = await client.post(endpoint + "/api/tx", data=data.tx_hex)
             tx_id = r.text
-            print("### broadcast tx_id: ", tx_id)
             return tx_id
-        # return "0f0f0f0f0f0f0f0f0f0f0f00f0f0f0f0f0f0f0f0f0f00f0f0f0f0f0f0.mock.transaction.id"
     except Exception as e:
-        print("### broadcast error: ", str(e))
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(e))
 
 
